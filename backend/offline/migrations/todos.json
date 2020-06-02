@@ -1,0 +1,47 @@
+{
+    "Table": {
+        "TableName": "Todos-dev",
+        "keySchema": [
+            {
+                "AttributeName": "userId",
+                "KeyType": "HASH"
+            },
+            {
+                "AttributeName": "todoID",
+                "KeyType": "RANGE"
+            }
+        ],
+        "AttributeDefinitions": [
+            {
+                "AttributeName": "userId",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "todoId",
+                "AttributeType": "S"
+            }
+        ],
+        "ProvisionedThroughput":{
+            "ReadCapacityUnits": 5,
+            "WriteCapacityUnits": 5
+        },
+        "LocalSecondaryIndexes": [
+            { 
+                "IndexName": "dev-UserIdIndex",
+                "KeySchema": [ 
+                    { 
+                        "AttributeName": "UserId",
+                        "KeyType": "HASH"
+                    },
+                    { 
+                        "AttributeName": "todoId",
+                        "KeyType": "RANGE"
+                    }
+                ],
+                "Projection": { 
+                    "ProjectionType": "ALL"
+                }
+            }
+        ]
+    }
+}

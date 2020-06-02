@@ -1,0 +1,231 @@
+org: mareimorsy
+app: serverless-todo-app-app
+service:
+  name: serverless-todo-app
+
+plugins:
+  - serverless-webpack
+  - serverless-iam-roles-per-function
+  - serverless-offline
+  - serverless-dynamodb-local
+  - serverless-s3-local
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+  stage: ${opt:stage, 'prod'}
+  region: ${opt:region, 'us-east-1'}
+  apiGateway:
+    minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
+
+  environment:
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+    TODOS_TABLE: Todos-${self:provider.stage}
+    INDEX_NAME: UserIdIndex
+    S3_BUCKET: sls-attachments-${self:provider.stage}
+    SIGNED_URL_EXPIRATION: 300
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - codedeploy:*
+      Resource:
+        - '*'
+    - Effect: Allow
+      Action:
+        - dynamodb:*
+        - s3:*
+      Resource: '*'
+
+custom:
+  serverless-offline:
+    httpPort: 4000
+  tableName: Todos-dev
+  bucketName: sls-attachments-dev
+  dynamodb:
+    stages:
+      - dev
+    start:
+      port: 8000
+      # inMemory: true
+      dbPath: offline/dynamodb
+      migrate: true
+    migration:
+      dir: offline/migrations
+  # s3:
+  #   host: localhost
+  #   directory: /tmp
+
+
+functions:
+
+  # webhook:
+  #   handler: handler.webhook
+  #   events:
+  #     - http:
+  #       method: GET
+  #       path: /
+  # s3hook:
+  #   handler: handler.s3hook
+  #   events:
+  #     - s3: local-bucket
+  #       event: s3:*
+
+  Auth:
+    handler: src/lambda/auth/auth0Authorizer.handler
+
+  # TODO: Configure this function
+  GetTodos:
+    handler: src/lambda/http/getTodos.handler
+    events:
+      - http:
+          method: get
+          path: todos
+          cors: true
+
+  # TODO: Configure this function
+  CreateTodo:
+    handler: src/lambda/http/createTodo.handler
+    events:
+      - http:
+          method: post
+          path: todos
+          cors: true
+
+  # TODO: Configure this function
+  UpdateTodo:
+    handler: src/lambda/http/updateTodo.handler
+    events:
+      - http:
+          method: patch
+          path: todos/{todoId}
+          cors: true
+
+  # TODO: Configure this function
+  DeleteTodo:
+    handler: src/lambda/http/deleteTodo.handler
+    events:
+      - http:
+          method: delete
+          path: todos/{todoId}
+          cors: true
+
+  # TODO: Configure this function
+  GenerateUploadUrl:
+    handler: src/lambda/http/generateUploadUrl.handler
+    events:
+      - http:
+          method: post
+          path: todos/{todoId}/attachment
+          cors: true
+
+resources:
+  Resources:
+    # API Gateway
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'*'"
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
+
+    # DynamoDB
+    # TodoDynamoDBTable:
+    #   Type: AWS::DynamoDB::Table
+    #   Properties:
+    #     AttributeDefinitions:
+    #       - AttributeName: userId
+    #         AttributeType: S
+    #       - AttributeName: createdAt
+    #         AttributeType: S
+    #       - AttributeName: todoId
+    #         AttributeType: S
+    #     KeySchema:
+    #       - AttributeName: userId
+    #         KeyType: HASH
+    #     BillingMode: PAY_PER_REQUEST
+    #     TableName: ${self:provider.environment.TODOS_TABLE}
+
+    TodoTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: todoId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: todoId
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.TODOS_TABLE}
+        LocalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.INDEX_NAME}
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: todoId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+# resources:
+#   Resources:
+#     GatewayResponseDefault4XX:
+#       Type: AWS::ApiGateway::GatewayResponse
+#       Properties:
+#         ResponseParameters:
+#           gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+#           gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+#           gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
+#         ResponseType: DEFAULT_4XX
+#         RestApiId:
+#           Ref: ApiGatewayRestApi
+
+    # NewResource:
+    #   Type: AWS::S3::Bucket
+    #   Properties:
+    #     BucketName: sls-attachments-dev
+
+    # S3 Bucket
+    AttachmentBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.S3_BUCKET}
+        CorsConfiguration:
+          CorsRules:
+            -
+              AllowedOrigins:
+                - '*'
+              AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+                - HEAD
+              MaxAge: 3000
+
+    # S3 Bucket Policy
+    BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        PolicyDocument:
+          Id: Policy
+          Version: '2012-10-17'
+          Statement:
+            - Sid: PublicReadWriteBucketPolicy
+              Effect: Allow
+              Principal: '*' # Anyone
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: arn:aws:s3:::${self:provider.environment.S3_BUCKET}/*
+        Bucket: !Ref AttachmentBucket
